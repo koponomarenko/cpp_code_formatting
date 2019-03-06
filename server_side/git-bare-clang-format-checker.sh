@@ -1,28 +1,50 @@
 #!/bin/bash
 ################################################################################
-# This script checks formatting of all files with certain file extension
+# This script checks formatting of all files with certain file extensions
 # in the commit.
 #
 # SPECIFICS:
-# The whole file is checked.
+#     - The whole file is checked.
+#     - .clang-format file is obtained from a branch in '--branch' argument.
+#
+#     - Some variables may be split into declaration and initialization.
+#       In case of local variable the return code from a subshell is replaced
+#       with a return code from the operation of making a variable 'local'
+#       (almost always '0').
 ################################################################################
 
-clang_format_bin="/opt/dev_tools/bin/clang-format"
+this_script_dir="$(cd "$(dirname "${0}")" >/dev/null 2>&1 && pwd)"
+this_script_name="$(basename "${0}")"
+this_script_path="${this_script_dir}/${this_script_name}"
 
+srv_err="Error occured on the server"
+
+# do not print anything to 'stdout' here, the result may be assigned to a variable
+cmd_do() {
+    eval "$@" || { echo "${srv_err}. ${this_script_path}: cmd failed '$@'" >&2; exit 1; }
+}
+
+# do not print anything to 'stdout' here, the result may be assigned to a variable
+cmd_do_nonfatal() {
+    eval "$@" || { echo "${srv_err}. ${this_script_path}: cmd failed '$@'" >&2; return 1; }
+}
+
+log_err() {
+    echo "${srv_err}. ${this_script_path}: $@" >&2
+}
+
+################################################################################
+# Set all needed variables.
+################################################################################
+clang_format_bin="/opt/dev_tools/bin/clang-format"
 # path to the root dir with bare git repos
 repo_root_dir=""
-
-# path to the repo with clang-format stuff
+# absolute path to a repo with '.clang-format' file
 dot_clang_format_file_src_repo_dir="$repo_root_dir/<path_to_repo>.git"
-# name of the branch where to look for clang-format stuff
-dot_clang_format_file_src_repo_branch="<branch_name>"
+# path from the repo root to the '.clang-format' file
 dot_clang_format_file_src="clang-format/dot-clang-format"
-dot_clang_format_file_dest="$repo_root_dir/<dest_dir>/.clang-format"
-
 
 file_extensions="(cpp|h|hpp|c|c\+\+|cc|hh|cxx|hxx|C|H)"
-
-srv_err="Error occured on the server:"
 
 ################################################################################
 #   Parse script args
@@ -40,6 +62,11 @@ while [[ $# -gt 0 ]]; do
             shift # past argument
             shift # past value
             ;;
+        --branch)
+            branch="$2"
+            shift # past argument
+            shift # past value
+            ;;
         *) # unknown option
             shift # past argument
             ;;
@@ -47,30 +74,27 @@ while [[ $# -gt 0 ]]; do
 done
 
 ################################################################################
-#   Check env
+#   Check environment
 ################################################################################
-if [ ! -f "${clang_format_bin}" ]; then
-    echo "$srv_err clang-format not found!" >&2
-    exit 1
-fi
-clang_format_version="7.0.1"
-if ! ${clang_format_bin} -version | grep -q "version ${clang_format_version}"; then
-    echo "$srv_err clang-format must be version ${clang_format_version}!" >&2
-    echo "$srv_err current version is:" >&2
-    ${clang_format_bin} -version >&2
+if [ -z "$BASH" ]; then
+    log_err "This shell is not bash shell"
     exit 1
 fi
 
-if [ -z "$BASH" ]; then
-    echo "$srv_err This shell is not bash shell" >&2
+set -o pipefail
+
+cmd_do which diff >/dev/null
+cmd_do which git >/dev/null
+
+if [ ! -f "${clang_format_bin}" ]; then
+    log_err "clang-format not found!"
     exit 1
 fi
-if ! which diff &>/dev/null; then
-    echo "$srv_err diff binary is not detected" >&2
-    exit 1
-fi
-if ! which git &>/dev/null; then
-    echo "$srv_err git binary is not detected" >&2
+
+clang_format_version="7.0.1"
+if ! ${clang_format_bin} -version | grep -q "version ${clang_format_version}"; then
+    log_err "clang-format must be version ${clang_format_version}!"
+    log_err "current version is: $(${clang_format_bin} -version)"
     exit 1
 fi
 
@@ -78,128 +102,88 @@ fi
 unset GIT_DIR
 
 ################################################################################
-#   List of repositories to check with clang-format
+#   Get a list of repositories for formatting check
 ################################################################################
-if ! cd ${dot_clang_format_file_src_repo_dir}; then
-    echo "$srv_err Can't cd into ${dot_clang_format_file_src_repo_dir}" >&2
-    exit 1
-fi
+cmd_do cd ${dot_clang_format_file_src_repo_dir}
+repos_to_check_cpp_formatting_file="clang-format/server-side/repos-to-check-cpp-formatting"
+repos_to_check_cpp_formatting_out="$(cmd_do git show \
+    ${branch}:${repos_to_check_cpp_formatting_file})" || exit 1
 
-repos_to_check_cpp_formatting_file="clang-format/server_side/repos-to-check-cpp-formatting"
-repos_to_check_cpp_formatting_out="$(git show \
-    ${dot_clang_format_file_src_repo_branch}:${repos_to_check_cpp_formatting_file})"
-if [ "$?" -ne "0" ]; then
-    echo "$srv_err 'git show" \
-        "${dot_clang_format_file_src_repo_branch}:${repos_to_check_cpp_formatting_file}'" \
-        "returned with error" >&2
-    exit 1
-fi
-if [ -z "${repos_to_check_cpp_formatting_out}" ]; then
-    echo "$srv_err 'repos_to_check_cpp_formatting_out' var is empty" >&2
-    exit 1
-fi
-
-. <(printf "%s" "${repos_to_check_cpp_formatting_out}")
+. <(cmd_do 'printf "%s" "${repos_to_check_cpp_formatting_out}"') || exit 1
 
 ################################################################################
-#   Check if this repo is in the list of repositories to check formatting
+#   Check if this repo is in the list of repositories for formatting check
 ################################################################################
+[ ! -z ${projects+x} ] || { log_err "'\${projects}' arr is not set"; exit 1; }
+
 found="0"
 for i in "${projects[@]}"; do
-    if [[ "$i" == "$git_repo" ]]; then
-        found="1"
-        break
+    if [[ "${i}" == "${git_repo}" ]]; then
+        found="1" && break
     fi
 done
 
-if [ "${found}" -ne "1" ]; then
-    echo "$project project doesn't use clang-format"
+if [ "${found}" -eq "0" ]; then
+    #echo "${git_repo} project doesn't use clang-format"
     exit 0
 fi
 
 ################################################################################
-# Ensure that the correct ".clang-format" file is used
+#   Get the latest version of the ".clang-format" file
 ################################################################################
-if ! cd ${dot_clang_format_file_src_repo_dir}; then
-    echo "$srv_err Can't cd into ${dot_clang_format_file_src_repo_dir}" >&2
-    exit 1
-fi
-
-# get the latest version of the file in the branch
-# need to preserves all trailing newlines '; printf x); $var=${a%x}'
-dot_clang_format_file_out="$(git show \
-    ${dot_clang_format_file_src_repo_branch}:${dot_clang_format_file_src}; printf x)"
-if [ "$?" -ne "0" ]; then
-    echo "$srv_err 'git show" \
-        "${dot_clang_format_file_src_repo_branch}:${dot_clang_format_file_src}'" \
-        "returned with error" >&2
-    exit 1
-fi
-if [ -z "${dot_clang_format_file_out}" ]; then
-    echo "$srv_err 'dot_clang_format_file_out' var is empty" >&2
-    exit 1
-fi
-
+cmd_do cd ${dot_clang_format_file_src_repo_dir}
+# to preserves all trailing newlines this workaround is used:
+#     a=$(printf 'test\n\n'; printf x); a=${a%x}
+dot_clang_format_file_out="$(cmd_do git show \
+    ${branch}:${dot_clang_format_file_src}; printf x)" || exit 1
 dot_clang_format_file_out=${dot_clang_format_file_out%x}
 
-# create a '.clang-format' file if there is none, or if it's different
-create_file="0"
-if [ ! -f "${dot_clang_format_file_dest}" ]; then
-    create_file="1"
-else
-    cmp -s ${dot_clang_format_file_dest} <(printf "%s" "${dot_clang_format_file_out}")
-    [ "$?" -ne "0" ] && create_file="1"
-fi
-
-if [ "${create_file}" -ne "0" ]; then
-    printf "%s" "${dot_clang_format_file_out}" >${dot_clang_format_file_dest}
-    if [ "$?" -ne "0" ]; then
-        echo "$srv_err Can't create ${dot_clang_format_file_dest}" >&2
-        exit 1
-    fi
-fi
+tmp_dir=""
+tmp_dir="$(cmd_do mktemp -d -t dot-clang-format.XXXXXXXXXX)" || exit 1
+trap 'rm -rf -- "${tmp_dir}"' INT TERM HUP EXIT
+cmd_do 'printf "%s" "${dot_clang_format_file_out}"' >${tmp_dir}/.clang-format || exit 1
 
 ################################################################################
 #   Check formatting
 ################################################################################
-git_repo_dir="${repo_root_dir}/${git_repo}.git"
-if ! cd ${git_repo_dir}; then
-    echo "$srv_err Can't change dir to $git_repo_dir" >&2
-    exit 1
-fi
+cmd_do cd "${repo_root_dir}/${git_repo}.git"
 
-# git list all files in the commit
-files=($(git diff-tree --no-commit-id --name-only -r ${commit}))
-if [ "$?" -ne "0" ]; then
-    echo "$srv_err 'git diff-tree --no-commit-id --name-only -r ${commit}'" \
-        "returned with error" >&2
-    exit 1
-fi
+# list all files in the commit
+declare -a files
+files=($(cmd_do git diff-tree --no-commit-id --name-only -r ${commit})) || exit 1
 
 bad_formatting="0"
-error_out="Wrong formatting"$'\n'
+error_out="Wrong formatting!"$'\n'
+file_out=""
+formatted_out=""
 for f in "${files[@]}"; do
     if [[ ! "${f}" =~ \.${file_extensions}$ ]]; then
         echo "Skip file: ${f}"
         continue
     fi
 
-    file_out=$(git show ${commit}:${f})
-    formatted_out=$(echo "${file_out}" | ${clang_format_bin} \
-        -style=file -fallback-style=none -assume-filename=${f})
+    file_out="$(cmd_do git show ${commit}:${f})" || exit 1
+    cmd_do pushd ${tmp_dir} >/dev/null
+    formatted_out="$(cmd_do 'echo "${file_out}" | ${clang_format_bin} \
+        -style=file -fallback-style=none -assume-filename=${f}')" || exit 1
+    cmd_do popd >/dev/null
 
     diff_res="$(diff -u  <(printf "%s" "${file_out}") <(printf "%s" "${formatted_out}"))"
-    if [ -n "${diff_res}" ]; then
+    rc="$?"
+    if [ "${rc}" -eq "1" ]; then
         bad_formatting="1"
         error_out+="file: ${f}"$'\n'
         error_out+="${diff_res}"
         break
+    elif [ "${rc}" -eq "2" ]; then
+        log_err "diff returned with error while diffing file '${f}' in commit '${commit}'"
+        exit 1
     fi
 done
 
 if [ "${bad_formatting}" -ne "0" ]; then
-    echo "***Error start***" >&2
+    echo "*** Error start ***" >&2
     echo "${error_out}" >&2
-    echo "***Error end***" >&2
+    echo "*** Error end ***" >&2
     exit 1
 fi

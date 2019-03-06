@@ -1,11 +1,33 @@
 #!/bin/bash
 ################################################################################
 # This is a gerrit commit received hook.
+#
+# SPECIFICS:
+#     - Some variables may be split into declaration and initialization.
+#       In case of local variable the return code from a subshell is replaced
+#       with a return code from the operation of making a variable 'local'
+#       (almost always '0').
 ################################################################################
 
-srv_err="Error occured on the server:"
+this_script_dir="$(cd "$(dirname "${0}")" >/dev/null 2>&1 && pwd)"
+this_script_name="$(basename "${0}")"
+this_script_path="${this_script_dir}/${this_script_name}"
 
-# Parse script args
+srv_err="Error occured on the server"
+
+# do not print anything to 'stdout' here, the result may be assigned to a variable
+cmd_do() {
+    eval "$@" || { echo "${srv_err}. ${this_script_path}: cmd failed '$@'" >&2; exit 1; }
+}
+
+# do not print anything to 'stdout' here, the result may be assigned to a variable
+cmd_do_nonfatal() {
+    eval "$@" || { echo "${srv_err}. ${this_script_path}: cmd failed '$@'" >&2; return 1; }
+}
+
+#
+# Parse script args.
+#
 while [[ $# -gt 0 ]]; do
     key="$1"
     case $key in
@@ -51,59 +73,51 @@ while [[ $# -gt 0 ]]; do
 done
 
 check_cpp_code_formatting() {
+    #
+    # Set all needed variables.
+    #
     # path to the root dir with bare git repos
     local repo_root_dir=""
-
     # path to the repo with clang-format stuff
     local checker_repo_dir="${repo_root_dir}/<path_to_repo>.git"
-    # name of the branch where to look for clang-format stuff
-    local checker_repo_branch="<branch_name>"
+    # path from the repo root to the checker
     local checker_file_src="clang-format/server_side/git-bare-clang-format-checker.sh"
 
-    local checker_name="git-bare-clang-format-checker.sh"
-    local checker_dir="/tmp"
-    local checker="${checker_dir}/${checker_name}"
-
-    # get the latest version of the script in the branch
-    pushd ${checker_repo_dir} >/dev/null
-    if [ "$?" -ne "0" ]; then
-        echo "$srv_err Can't pushd to ${checker_repo_dir}" >&2
-        exit 1
-    fi
-    local checker_file_out="$(env -u GIT_DIR git show \
-        ${checker_repo_branch}:${checker_file_src})"
-    if [ "$?" -ne "0" ]; then
-        echo "$srv_err 'git show" \
-            "${checker_repo_branch}:${checker_file_src}'" \
-            "returned with error" >&2
-        exit 1
-    fi
-    if [ -z "${checker_file_out}" ]; then
-        echo "$srv_err 'checker_file_out' var is empty" >&2
-        exit 1
-    fi
-    popd >/dev/null
-
-    # create script if there is none, or if it's different
-    create_file="0"
-    if [ ! -f "${checker}" ]; then
-        create_file="1"
+    #
+    # Validate received refname.
+    #
+    # name of the branch to check for clang-format stuff presence
+    local checker_repo_branch=""
+    local refname_mask="refs/heads/"
+    if [[ ${refname} =~ ^${refname_mask} ]]; then
+        checker_repo_branch="${refname#${refname_mask}}"
     else
-        cmp -s ${checker} <(printf "%s" "${checker_file_out}")
-        [ "$?" -ne "0" ] && create_file="1"
+        #echo "refname '${refname}' doesn't match '${refname_mask}'"
+        return 0
     fi
 
-    if [ "${create_file}" -ne "0" ]; then
-        printf "%s" "${checker_file_out}" >${checker}
-        if [ "$?" -ne "0" ]; then
-            echo "$srv_err Can't create ${checker}" >&2
-            exit 1
-        fi
-    fi
+    #
+    # Get the latest version of the checker from the branch.
+    # Every branch may have a different version of the checker, or may not have it at all.
+    # Skip format checking if the checker is not in the branch.
+    #
+    cmd_do pushd ${checker_repo_dir} >/dev/null
+    local checker_file_out
+    checker_file_out="$(cmd_do env -u GIT_DIR git show \
+        ${checker_repo_branch}:${checker_file_src} 2>/dev/null)" || exit 0
+    cmd_do popd >/dev/null
 
-    /bin/bash ${checker} --git-repo $project --commit $newrev
-    if [ "$?" -ne "0" ]; then
-        exit 1
-    fi
+    #
+    # Create a tmp file for this version of checker.
+    #
+    checker="$(cmd_do mktemp -t ${checker_file_src##*/}.XXXXXXXXXX)" || exit 1
+    trap 'rm -f -- "${checker}"' INT TERM HUP EXIT
+    cmd_do 'printf "%s" "${checker_file_out}"' >${checker} || exit 1
+
+    #
+    # Run cpp code formatting checker.
+    #
+    /bin/bash ${checker} --git-repo ${project} --commit ${newrev} --branch ${checker_repo_branch}
+    [ "$?" -eq "0" ] || exit 1
 }
 check_cpp_code_formatting
