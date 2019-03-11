@@ -13,24 +13,20 @@
 #       (almost always '0').
 ################################################################################
 
-this_script_dir="$(cd "$(dirname "${0}")" >/dev/null 2>&1 && pwd)"
-this_script_name="$(basename "${0}")"
-this_script_path="${this_script_dir}/${this_script_name}"
-
 srv_err="Error occured on the server"
 
 # do not print anything to 'stdout' here, the result may be assigned to a variable
 cmd_do() {
-    eval "$@" || { echo "${srv_err}. ${this_script_path}: cmd failed '$@'" >&2; exit 1; }
+    eval "$@" || { echo "${srv_err}. $(realpath -s "${BASH_SOURCE[0]}"): cmd failed '$@'" >&2; exit 1; }
 }
 
 # do not print anything to 'stdout' here, the result may be assigned to a variable
 cmd_do_nonfatal() {
-    eval "$@" || { echo "${srv_err}. ${this_script_path}: cmd failed '$@'" >&2; return 1; }
+    eval "$@" || { echo "${srv_err}. $(realpath -s "${BASH_SOURCE[0]}"): cmd failed '$@'" >&2; return 1; }
 }
 
 log_err() {
-    echo "${srv_err}. ${this_script_path}: $@" >&2
+    echo "${srv_err}. $(realpath -s "${BASH_SOURCE[0]}"): $@" >&2
 }
 
 ################################################################################
