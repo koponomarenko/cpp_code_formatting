@@ -40,7 +40,7 @@ clang_format_bin="/opt/dev_tools/bin/clang-format"
 # path to the root dir with bare git repos
 repo_root_dir=""
 # absolute path to a repo with '.clang-format' file
-dot_clang_format_file_src_repo_dir="$repo_root_dir/<path_to_repo>.git"
+dot_clang_format_file_src_repo_dir="${repo_root_dir}/<path_to_repo>.git"
 # path from the repo root to the '.clang-format' file
 dot_clang_format_file_src="clang-format/dot-clang-format"
 
@@ -50,20 +50,20 @@ file_extensions="(cpp|h|hpp|c|c\+\+|cc|hh|cxx|hxx|C|H)"
 #   Parse script args
 ################################################################################
 while [[ $# -gt 0 ]]; do
-    key="$1"
-    case $key in
+    key="${1}"
+    case ${key} in
         --git-repo)
-            git_repo="$2"
+            git_repo="${2}"
             shift # past argument
             shift # past value
             ;;
         --commit)
-            commit="$2"
+            commit="${2}"
             shift # past argument
             shift # past value
             ;;
         --branch)
-            branch="$2"
+            branch="${2}"
             shift # past argument
             shift # past value
             ;;
@@ -76,7 +76,7 @@ done
 ################################################################################
 #   Check environment
 ################################################################################
-if [ -z "$BASH" ]; then
+if [ -z "${BASH}" ]; then
     log_err "This shell is not bash shell"
     exit 1
 fi
@@ -114,7 +114,7 @@ repos_to_check_cpp_formatting_out="$(cmd_do git show \
 ################################################################################
 #   Check if this repo is in the list of repositories for formatting check
 ################################################################################
-[ ! -z ${projects+x} ] || { log_err "'\${projects}' arr is not set"; exit 1; }
+[ ! -z ${projects+x} ] || { log_err "'\${projects}' array is not set"; exit 1; }
 
 found="0"
 for i in "${projects[@]}"; do
@@ -158,7 +158,7 @@ file_out=""
 formatted_out=""
 for f in "${files[@]}"; do
     if [[ ! "${f}" =~ \.${file_extensions}$ ]]; then
-        echo "Skip file: ${f}"
+        #echo "Skip file: ${f}"
         continue
     fi
 

@@ -29,40 +29,40 @@ cmd_do_nonfatal() {
 # Parse script args.
 #
 while [[ $# -gt 0 ]]; do
-    key="$1"
-    case $key in
+    key="${1}"
+    case ${key} in
         --project)
-            project="$2"
+            project="${2}"
             shift # past argument
             shift # past value
             ;;
         --refname)
-            refname="$2"
+            refname="${2}"
             shift # past argument
             shift # past value
             ;;
         --uploader)
-            uploader="$2"
+            uploader="${2}"
             shift # past argument
             shift # past value
             ;;
         --uploader-username)
-            uploader_username="$2"
+            uploader_username="${2}"
             shift # past argument
             shift # past value
             ;;
         --oldrev)
-            oldrev="$2"
+            oldrev="${2}"
             shift # past argument
             shift # past value
             ;;
         --newrev)
-            newrev="$2"
+            newrev="${2}"
             shift # past argument
             shift # past value
             ;;
         --cmdref)
-            cmdref="$2"
+            cmdref="${2}"
             shift # past argument
             shift # past value
             ;;
