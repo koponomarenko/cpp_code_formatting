@@ -146,7 +146,7 @@ cmd_do cd "${repo_root_dir}/${git_repo}.git"
 
 # list all files in the commit
 declare -a files
-files=($(cmd_do git diff-tree --no-commit-id --name-only -r ${commit})) || exit 1
+files=($(cmd_do git diff-tree --no-commit-id --name-only --diff-filter=d -r ${commit})) || exit 1
 
 bad_formatting="0"
 error_out="Wrong formatting!"$'\n'
