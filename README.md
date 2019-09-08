@@ -2,7 +2,7 @@
 Description
 --------------------------------------------------------------------------------
 
-clang-format is the formatting tool which can be use with intention to automatically
+clang-format is the formatting tool which can be used with intention to automatically
 apply formatting rules based on best practices in C++ community.
 
 `dot-clang-format` - is `.clang-format` file.
